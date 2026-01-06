@@ -1,84 +1,87 @@
-import re
-import pandas as pd
 import streamlit as st
+import pandas as pd
 
-st.set_page_config(page_title="Term 6 Dashboard", layout="wide")
+st.set_page_config(page_title="Term 6 Schedule Dashboard", layout="wide")
+
 st.title("Term 6 Schedule Dashboard")
 
-st.write("Upload the timetable, choose subjects, and download your schedule.")
+st.write("Upload your timetable file (Excel)")
 
-uploaded_file = st.file_uploader("Upload Final_Schedule_T6 file", type=["xlsx"])
+uploaded_file = st.file_uploader("Upload .xlsx file", type=["xlsx"])
 
+if uploaded_file is not None:
+    # Read the file
+    try:
+        df = pd.read_excel(uploaded_file)
 
-def clean_schedule(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
+        st.subheader("Preview")
+        st.dataframe(df, use_container_width=True)
 
-    # Normalize headers
-    df.columns = [str(c).strip() for c in df.columns]
+        # Subject options based on provided list
+        subject_list = [
+            "Fintech-A","Fintech-B",
+            "BEDM-A","BEDM-B",
+            "Art-A","Art-B",
+            "WH-A","WH-B",
+            "LETV",
+            "Film&Firm-A","Film&Firm-B",
+            "SHRM",
+            "SCM-A","SCM-B",
+            "AIS",
+            "EB",
+            "AIAM-A","AIAM-B",
+            "SA-A","SA-B",
+            "CSM",
+            "EM",
+            "I4TS"
+        ]
 
-    # Remove fully empty rows
-    df = df.dropna(how="all")
+        st.subheader("Select Subjects")
+        selected_subjects = st.multiselect(
+            "Choose subjects",
+            subject_list
+        )
 
-    # Rename first two columns
-    df.rename(columns={df.columns[0]: "week", df.columns[1]: "day"}, inplace=True)
+        if selected_subjects:
+            # Try matching against any relevant column name
+            possible_cols = ["Subject", "Course", "Subject Name", "Section", "Class"]
+            col_found = None
 
-    # Unpivot timetable grid
-    long_df = df.melt(
-        id_vars=["week", "day"],
-        var_name="time",
-        value_name="raw"
-    )
+            for c in possible_cols:
+                if c in df.columns:
+                    col_found = c
+                    break
 
-    # Keep meaningful rows
-    long_df = long_df.dropna(subset=["raw"])
+            if not col_found:
+                st.error(
+                    "Could not detect a subject column. "
+                    "Share your column names so I can map them correctly."
+                )
+            else:
+                filtered = df[df[col_found].isin(selected_subjects)]
 
-    # Parse subject + location like: Fintech-A (PT-1-2)
-    def parse(value):
-        value = str(value).strip()
-        match = re.match(r"([A-Za-z& ]+-?[A-Z]?)\s*\((.*?)\)", value)
+                st.subheader("Filtered Schedule")
+                st.dataframe(filtered, use_container_width=True)
 
-        if match:
-            subject = match.group(1).strip()
-            location = match.group(2).strip()
+                if not filtered.empty:
+                    # Download as Excel
+                    download_file = filtered.to_excel(
+                        "filtered_schedule.xlsx", index=False
+                    )
+
+                    with open("filtered_schedule.xlsx", "rb") as f:
+                        st.download_button(
+                            label="Download Schedule (Excel)",
+                            data=f,
+                            file_name="schedule_term6.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                else:
+                    st.warning("No records found for the selected subjects.")
         else:
-            subject = value
-            location = ""
+            st.info("Select at least one subject to see the schedule.")
 
-        return pd.Series([subject, location])
-
-    long_df[["subject", "location"]] = long_df["raw"].apply(parse)
-
-    long_df = (
-        long_df[["week", "day", "time", "subject, "location"]]
-        .sort_values(["week", "day", "time"])
-        .reset_index(drop=True)
-    )
-
-    return long_df
-
-
-if uploaded_file:
-    df = pd.read_excel(uploaded_file)
-    clean_df = clean_schedule(df)
-
-    st.subheader("Parsed Schedule")
-    st.dataframe(clean_df)
-
-    subjects = sorted(clean_df["subject"].unique())
-    chosen = st.multiselect("Select subjects", subjects)
-
-    if chosen:
-        filtered = clean_df[clean_df["subject"].isin(chosen)]
-        st.subheader("Filtered")
-        st.dataframe(filtered)
-
-        out_name = "Term6_Selected_Schedule.xlsx"
-        filtered.to_excel(out_name, index=False)
-
-        with open(out_name, "rb") as f:
-            st.download_button(
-                label="Download Excel",
-                data=f,
-                file_name=out_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+    except Exception as e:
+        st.error(f"File load failed: {e}")
+else:
+    st.info("Upload your timetable to begin.")
